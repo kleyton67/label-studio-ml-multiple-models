@@ -1,20 +1,16 @@
-FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TEST_ENV
 
 WORKDIR /app
 
-RUN conda update conda -y
-
 RUN --mount=type=cache,target="/var/cache/apt",sharing=locked \
     --mount=type=cache,target="/var/lib/apt/lists",sharing=locked \
     apt-get -y update \
-    && apt-get install -y git \
-    && apt-get install -y wget \
-    && apt-get install -y curl \
-    && apt-get install -y g++ freeglut3-dev build-essential libx11-dev \
-    libxmu-dev libxi-dev libglu1-mesa libglu1-mesa-dev libfreeimage-dev \
-    && apt-get -y install ffmpeg libsm6 libxext6 libffi-dev python3-dev python3-pip gcc
+    && apt-get install -y --no-install-recommends \
+        git wget curl ffmpeg libsm6 libxext6 libffi-dev \
+        python3-dev gcc g++ libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -50,7 +46,8 @@ WORKDIR /app
 COPY . ./
 
 # Download the YOLO models
-RUN /bin/sh -c 'if [ ! -f /app/models/yolov8m.pt ]; then \
+RUN mkdir -p /app/models && \
+    /bin/sh -c 'if [ ! -f /app/models/yolov8m.pt ]; then \
     yolo predict model=/app/models/yolov8m.pt source=/app/tests/car.jpg \
     && yolo predict model=/app/models/yolov8n.pt source=/app/tests/car.jpg \
     && yolo predict model=/app/models/yolov8n-cls.pt source=/app/tests/car.jpg \

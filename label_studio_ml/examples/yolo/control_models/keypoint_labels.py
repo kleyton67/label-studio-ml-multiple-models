@@ -167,7 +167,3 @@ class KeypointLabelsModel(ControlModel):
             "hidden": True,
         }
         return region
-
-
-# Pre-load and cache default model at startup
-KeypointLabelsModel.get_cached_model(KeypointLabelsModel.model_path)

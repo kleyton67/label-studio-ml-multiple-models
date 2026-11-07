@@ -1,9 +1,11 @@
+import gc
 import os
 import logging
 
 from pydantic import BaseModel
 from typing import Optional, List, Dict, ClassVar
 from ultralytics import YOLO
+import torch
 
 from label_studio_ml.model import LabelStudioMLBase
 from label_studio_ml.utils import DATA_UNDEFINED_NAME
@@ -32,6 +34,21 @@ def get_bool(attr, attr_name, default="false"):
     return attr.get(attr_name, default).lower() in ["1", "true", "yes"]
 
 
+def parse_model_paths(model_path) -> List[str]:
+    """Parse the `model_path` control tag attribute into a list of model filenames.
+
+    A single control tag can point to several models separated by commas, e.g.:
+        <RectangleLabels model_path="plate_id_1.pt, container_v12.pt">
+        => ["plate_id_1.pt", "container_v12.pt"]
+
+    Whitespace around each entry is ignored and empty entries are dropped, so a
+    plain single-model path is returned as a one-element list.
+    """
+    if not model_path:
+        return []
+    return [part.strip() for part in str(model_path).split(",") if part.strip()]
+
+
 class ControlModel(BaseModel):
     """
     Represents a control tag in Label Studio, which is associated with a specific type of labeling task
@@ -44,9 +61,15 @@ class ControlModel(BaseModel):
         to_name (str): The name of the data field that this control is associated with.
         value (str): The value name from the object that this control operates on, e.g., an image or text field.
         model (object): The model instance (e.g., YOLO) used to generate predictions for this control.
-        model_path (str): Path to the YOLO model file.
+        model_paths (List[str]): Model filenames used by this control, parsed from the
+            comma-separated `model_path` attribute. A single-model control has one entry.
+        label_maps (Dict[str, Dict[str, str]]): Per-model mapping of model labels to Label
+            Studio labels, keyed by model filename. Each model keeps its own mapping because
+            different models may expose different class names.
+        model_path (str): Path to the default YOLO model file (class level).
         model_score_threshold (float): Threshold for prediction scores; predictions below this value will be ignored.
-        label_map (Optional[Dict[str, str]]): A mapping of model labels to Label Studio labels.
+        label_map (Optional[Dict[str, str]]): Union of all per-model label maps, kept for
+            validation and backward compatibility. Predictions use `label_maps` per model.
     """
 
     type: ClassVar[str]
@@ -55,6 +78,8 @@ class ControlModel(BaseModel):
     to_name: str
     value: str
     model: YOLO
+    model_paths: List[str] = []
+    label_maps: Dict[str, Dict[str, str]] = {}
     model_path: ClassVar[str]
     model_score_threshold: float = 0.5
     label_map: Optional[Dict[str, str]] = {}
@@ -104,18 +129,33 @@ class ControlModel(BaseModel):
             )  # not recommended option, use `model_score_threshold`
             or MODEL_SCORE_THRESHOLD
         )
-        # read `model_path` attribute from the control tag
-        model_path = (
+        model_path_str = (
             ALLOW_CUSTOM_MODEL_PATH and control.attr.get("model_path")
         ) or cls.model_path
+        model_paths = parse_model_paths(model_path_str)
 
-        model = cls.get_cached_model(model_path)
-        model_names = model.names.values()  # class names from the model
         # from_name for label mapping can be differed from control.name (e.g. VideoRectangle)
         label_map_from_name = cls.get_from_name_for_label_map(
             mlbackend.label_interface, from_name
         )
-        label_map = mlbackend.build_label_map(label_map_from_name, model_names)
+
+        # Load each model to build its own label map. Models stay cached on the CPU;
+        # only one of them is moved to the GPU at a time during prediction.
+        label_maps = {}
+        model = None
+        for path in model_paths:
+            yolo_model = cls.get_cached_model(path)
+            label_maps[path] = mlbackend.build_label_map(
+                label_map_from_name, yolo_model.names.values()
+            )
+            if model is None:
+                model = yolo_model
+
+        # `label_map` keeps the union of all per-model maps: it is used to validate
+        # that the control tag has at least one matching label with the model(s).
+        label_map = {}
+        for path in model_paths:
+            label_map.update(label_maps.get(path, {}))
 
         return cls(
             control=control,
@@ -123,6 +163,8 @@ class ControlModel(BaseModel):
             to_name=to_name,
             value=value,
             model=model,
+            model_paths=model_paths,
+            label_maps=label_maps,
             model_score_threshold=model_score_threshold,
             label_map=label_map,
             label_studio_ml_backend=mlbackend,
@@ -144,6 +186,24 @@ class ControlModel(BaseModel):
             _model_cache[path] = cls.load_yolo_model(path)
         return _model_cache[path]
 
+    @classmethod
+    def offload_model(cls, model: YOLO):
+        """Release the GPU memory held by the model's predictor.
+
+        Ultralytics keeps the inference weights inside `model.predictor` (a device
+        copy) while `model.model` stays on the CPU. Dropping the predictor frees the
+        GPU, but the CPU weights stay cached so the next prediction reuses them
+        without reloading the file from disk.
+        """
+        try:
+            model.predictor = None
+            model.model.cpu()
+        except Exception as e:
+            logger.debug(f"Failed to offload model from GPU: {e}")
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     def debug_plot(self, image):
         if not DEBUG_PLOT:
             return
@@ -162,6 +222,28 @@ class ControlModel(BaseModel):
             path (str): Path to the file with media
         """
         raise NotImplementedError("This method should be overridden in derived classes")
+
+    def predict_regions_for_tasks(self, paths: List[str]) -> List[List[Dict]]:
+        """Predict regions for a batch of task paths, one model at a time.
+
+        Multi-model control tags run each model over the whole batch and offload it
+        before the next model runs, so only one model occupies the GPU at any moment
+        (the models may be too large to fit together in GPU memory).
+        """
+        if len(self.model_paths) <= 1:
+            return [self.predict_regions(path) for path in paths]
+
+        results: List[List[Dict]] = [[] for _ in paths]
+        for model_path in self.model_paths:
+            model = self.get_cached_model(model_path)
+            self.model = model
+            self.label_map = self.label_maps.get(model_path, {})
+            try:
+                for i, path in enumerate(paths):
+                    results[i].extend(self.predict_regions(path))
+            finally:
+                self.offload_model(model)
+        return results
 
     def fit(self, event, data, **kwargs):
         """Fit the model."""

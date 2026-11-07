@@ -86,7 +86,3 @@ class ChoicesModel(ControlModel):
                 "score": float(score),
             }
         ]
-
-
-# pre-load and cache default model at startup
-ChoicesModel.get_cached_model(ChoicesModel.model_path)

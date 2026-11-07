@@ -387,6 +387,13 @@ by adding the `model_path` parameter to the control tag you're using
   ```
 - **Where to find class names**: See ML backend logs **to know the exact class names** your model predicts, and then 
 you can use these names in the `predicted_values` attribute and in the `value` of Label tags directly.
+- **Multiple models in one control tag**: Separate the filenames with commas in `model_path` to merge the predictions of several models into one result. This is useful when different models detect different classes:
+
+  ```xml
+  <RectangleLabels name="label" toName="image" model_path="plate_id_1.pt,container_v12.pt">
+  ```
+
+  The models run one at a time: each model processes the whole batch and is then unloaded from the GPU before the next model starts, so only one model occupies GPU memory at any moment (the models do not need to fit together in memory). Each model keeps its own label mapping, so use `predicted_values` to align the class names of each model with your Label Studio labels. See [README_MULTI_MODEL.md](README_MULTI_MODEL.md) for details.
 
 ### Step 5: Restart the ML Backend
 

@@ -87,7 +87,3 @@ class RectangleLabelsObbModel(ControlModel):
             }
             regions.append(region)
         return regions
-
-
-# pre-load and cache default model at startup
-RectangleLabelsObbModel.get_cached_model(RectangleLabelsObbModel.model_path)

@@ -93,7 +93,3 @@ class RectangleLabelsModel(ControlModel):
             }
             regions.append(region)
         return regions
-
-
-# pre-load and cache default model at startup
-RectangleLabelsModel.get_cached_model(RectangleLabelsModel.model_path)

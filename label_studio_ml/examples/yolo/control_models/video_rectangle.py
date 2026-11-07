@@ -221,7 +221,3 @@ class VideoRectangleModel(ControlModel):
 
         # Return the new filename
         return new_yaml_filename
-
-
-# pre-load and cache default model at startup
-VideoRectangleModel.get_cached_model(VideoRectangleModel.model_path)

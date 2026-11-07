@@ -8,6 +8,7 @@ services:
       context: .
       args:
         TEST_ENV: ${TEST_ENV}
+    env_file: .env
     environment:
       # specify these parameters if you want to use basic auth for the model server
       - BASIC_AUTH_USER=
@@ -31,6 +32,7 @@ services:
       # or you can try http://host.docker.internal:<label-studio-port> if you run LS on the same machine
       - LABEL_STUDIO_HOST=${LABEL_STUDIO_HOST:-http://host.docker.internal:8080}
       - LABEL_STUDIO_API_KEY=${LABEL_STUDIO_API_KEY}
+      - LABEL_STUDIO_HOST=${LABEL_STUDIO_HOST}
 
       # YOLO parameters
 
@@ -46,7 +48,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"  # for macos and unix      
     ports:
-      - "9090:9090"
+      - "8490:9090"
     volumes:
       - "./data/server:/data"
       - "./models:/app/models"

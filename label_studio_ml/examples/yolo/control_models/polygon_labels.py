@@ -71,7 +71,3 @@ class PolygonLabelsModel(ControlModel):
             }
             regions.append(region)
         return regions
-
-
-# pre-load and cache default model at startup
-PolygonLabelsModel.get_cached_model(PolygonLabelsModel.model_path)

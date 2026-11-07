@@ -64,6 +64,13 @@ class YOLO(LabelStudioMLBase):
                         )
                         continue
                     if not instance.label_map:
+                        model_paths = getattr(instance, "model_paths", None)
+                        if not isinstance(model_paths, (list, tuple)):
+                            model_paths = [instance.model_path]
+                        available_labels = "\n  ".join(
+                            f"{path}: {list(instance.get_cached_model(path).names.values())}"
+                            for path in model_paths
+                        )
                         logger.error(
                             f"No label map built for the '{control.tag}' control tag '{instance.from_name}'.\n"
                             f"This indicates that your Label Studio config labels do not match the model's labels.\n"
@@ -76,8 +83,8 @@ class YOLO(LabelStudioMLBase):
                             f'  <Label value="YourLabel" predicted_values="label1,label2"/>\n'
                             f"Labels provided in your labeling config:\n"
                             f"  {str(control.labels_attrs)}\n"
-                            f"Available '{instance.model_path}' model labels:\n"
-                            f"  {list(instance.model.names.values())}"
+                            f"Available model labels:\n"
+                            f"  {available_labels}"
                         )
                         continue
 
@@ -110,13 +117,17 @@ class YOLO(LabelStudioMLBase):
         )
         control_models = self.detect_control_models()
 
-        predictions = []
-        for task in tasks:
-            regions = []
-            for model in control_models:
-                path = model.get_path(task)
-                regions += model.predict_regions(path)
+        # Collect regions per task. Models are processed one at a time per control
+        # tag, so a multi-model control tag only puts a single model on the GPU.
+        task_regions: List[List[Dict]] = [[] for _ in tasks]
+        for model in control_models:
+            paths = [model.get_path(task) for task in tasks]
+            model_results = model.predict_regions_for_tasks(paths)
+            for i, regions in enumerate(model_results):
+                task_regions[i].extend(regions)
 
+        predictions = []
+        for regions in task_regions:
             # calculate final score
             all_scores = [region["score"] for region in regions if "score" in region]
             avg_score = sum(all_scores) / max(len(all_scores), 1)

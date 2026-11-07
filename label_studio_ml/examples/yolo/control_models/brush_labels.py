@@ -78,7 +78,3 @@ class BrushLabelsModel(ControlModel):
             }
             regions.append(region)
         return regions
-
-
-# pre-load and cache default model at startup
-BrushLabelsModel.get_cached_model(BrushLabelsModel.model_path)

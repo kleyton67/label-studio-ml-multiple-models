@@ -238,7 +238,3 @@ class TimelineLabelsModel(ControlModel):
         yolo_base_name = os.path.splitext(os.path.basename(self.model.model_name))[0]
         path = f"{MODEL_ROOT}/timelinelabels-{project_id}-{yolo_base_name}-{self.from_name}.pkl"
         return path
-
-
-# Preload and cache the default yolo model at startup
-TimelineLabelsModel.get_cached_model(TimelineLabelsModel.model_path)
