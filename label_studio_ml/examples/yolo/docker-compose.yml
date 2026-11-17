@@ -3,7 +3,7 @@ version: "3.8"
 services:
   yolo:
     container_name: yolo
-    image: humansignal/yolo:v0
+    image: kleyton67/label-studio:ml-${TAG:-latest}
     build:
       context: .
       args:
