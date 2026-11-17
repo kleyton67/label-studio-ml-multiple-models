@@ -1,23 +1,21 @@
-# Exclude everything
+# Exclude everything by default to keep the build context small
 **
 
-# Include Dockerfile and docker-compose for reference (optional, decide based on your use case)
+# Dockerfile and compose
 !Dockerfile
 !docker-compose.yml
 
-# Include Python application files
+# Python application files
 !*.py
 !*.yaml
-!tests/*
-!control_models/*
-!models/*
-!utils/*
+!control_models/
+!utils/
 
-# Include requirements files
+# Only the sample image used to warm up the models at build time
+!tests/car.jpg
+
+# Requirements
 !requirements*.txt
 
-# Include script
+# Startup script
 !*.sh
-
-# Exclude specific requirements if necessary
-# requirements-test.txt (Uncomment if you decide to exclude this)

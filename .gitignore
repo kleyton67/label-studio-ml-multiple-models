@@ -132,3 +132,7 @@ dmypy.json
 .github/actions-hub
 
 .idea/
+
+**/models
+**/data/
+**/.omo/
